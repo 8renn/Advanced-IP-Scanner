@@ -1,0 +1,187 @@
+# Cursor Rules — Network Tool (Enterprise Grade)
+
+---
+
+## SYSTEM ROLE (CRITICAL CONTEXT)
+
+---
+
+You are working inside a production-grade network scanning application.
+
+This is NOT a prototype.
+This is NOT experimental code.
+
+This is a high-performance desktop tool similar to Advanced IP Scanner.
+
+Stack:
+
+* PySide6 (Qt UI)
+* Python backend
+* Scapy (ARP scanning)
+* JSON MAC vendor database
+
+Primary Goals:
+
+* Performance (FAST scanning)
+* Stability (NO crashes)
+* Real-time UI updates
+* Clean modular architecture
+
+---
+
+## CORE BEHAVIOR RULES (NON-NEGOTIABLE)
+
+---
+
+* NEVER rewrite entire files
+* ONLY modify EXACT requested sections
+* NEVER make assumptions about missing code
+* ALWAYS inspect existing code before editing
+* ALWAYS preserve working systems
+
+If uncertain:
+→ ASK instead of guessing
+
+---
+
+## EXECUTION DISCIPLINE (MANDATORY)
+
+---
+
+You must operate in STRICT steps:
+
+1. Analyze existing code
+2. Identify EXACT modification location
+3. Make MINIMAL change required
+4. Stop immediately after change
+
+DO NOT:
+
+* Chain multiple changes
+* Refactor unrelated logic
+* Introduce new patterns unless required
+
+---
+
+## STEP FORMAT (STRICT)
+
+---
+
+STEP 1 — OPEN FILE <filename>
+
+STEP 2 — FIND THIS BLOCK <exact code snippet>
+
+STEP 3 — REPLACE WITH <new code>
+
+STEP 4 — SAVE FILE
+
+STOP after step.
+
+---
+
+## PERFORMANCE RULES (CRITICAL)
+
+---
+
+* UI must NEVER freeze
+* DO NOT block main thread
+* All heavy operations must remain threaded
+* Avoid unnecessary loops or recalculations
+* Optimize for speed over abstraction
+
+---
+
+## UI RULES (STRICT)
+
+---
+
+* Preserve ALL layout and structure
+* Do NOT move UI elements unless told
+* Do NOT restyle components unless told
+* Maintain real-time update behavior
+
+Context:
+This UI mimics Advanced IP Scanner with modern styling
+
+---
+
+## DATA HANDLING RULES
+
+---
+
+* Do NOT change data formats
+* Do NOT modify JSON structure
+* Maintain O(1) lookup behavior
+* Preserve MAC format: AA:BB:CC:DD:EE:FF
+
+---
+
+## THREADING RULES
+
+---
+
+* Do NOT break QThread usage
+* Do NOT move logic into UI thread
+* Ensure thread-safe UI updates only
+
+---
+
+## FEATURE IMPLEMENTATION RULES
+
+---
+
+* Implement ONE feature at a time
+* Do NOT bundle multiple features
+* Do NOT "improve" unrelated code
+* Keep logic minimal and direct
+
+---
+
+## ERROR PREVENTION (VERY IMPORTANT)
+
+---
+
+Before making changes:
+
+* Confirm target code exists
+* Confirm correct insertion point
+* Confirm no conflicts with threading
+* Confirm UI behavior remains intact
+
+If ANY doubt:
+→ STOP and ask
+
+---
+
+## FAILURE CONDITIONS (STRICTLY FORBIDDEN)
+
+---
+
+* Rewriting full files
+* Breaking scanning logic
+* Freezing UI
+* Changing architecture
+* Introducing unnecessary abstraction
+
+---
+
+## EXPECTED OUTPUT STYLE
+
+---
+
+* Minimal
+* Precise
+* Surgical edits only
+* No explanations unless asked
+
+---
+
+## FINAL RULE
+
+---
+
+This is a precision engineering task.
+
+Act like a senior engineer modifying a live production system.
+
+NOT like an AI generating new code.
