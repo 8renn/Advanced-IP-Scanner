@@ -1,0 +1,49 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Download macOS speedtest CLI
+        run: |
+          curl -L -o speedtest.zip "https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-macosx-universal.tgz"
+          tar -xzf speedtest.zip
+          mkdir -p assets
+          cp speedtest assets/speedtest
+          chmod +x assets/speedtest
+
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller ANT-mac.spec
+
+      - name: Zip the app bundle
+        run: |
+          cd dist
+          zip -r AdvancedNetworkTool-macOS.zip AdvancedNetworkTool.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AdvancedNetworkTool-macOS
+          path: dist/AdvancedNetworkTool-macOS.zip
+          retention-days: 30
