@@ -1,9 +1,12 @@
+import json
 import struct
 import socket
 import threading
 import time
 import os
 import select
+import shlex
+import subprocess
 import sys
 import ctypes
 import ctypes.wintypes
@@ -599,6 +602,143 @@ class MTREngine:
             time.sleep(REPORT_INTERVAL)
             if self._tracing and DEBUG_MTR_CONSOLE:
                 self.print_report()
+
+
+def darwin_raw_icmp_available() -> bool:
+    """True if this process may open raw ICMP on macOS (typically root)."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+        s.close()
+        return True
+    except (PermissionError, OSError):
+        return False
+
+
+def _darwin_escape_for_do_shell_script(shell_cmd: str) -> str:
+    return shell_cmd.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def launch_darwin_elevated_mtr_subprocess(worker_argv: list[str]) -> subprocess.Popen:
+    """
+    Run worker_argv as a single shell command via osascript so only that child runs as root.
+    worker_argv is typically [sys.executable, ..., '--mtr-elevated-worker', ...].
+    """
+    cmd = shlex.join(worker_argv)
+    inner = _darwin_escape_for_do_shell_script(cmd)
+    script = f'do shell script "{inner}" with administrator privileges'
+    return subprocess.Popen(
+        ["osascript", "-e", script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+class DarwinElevatedMTRReader:
+    """Exposes hop data from an elevated worker process (JSON state file + osascript child)."""
+
+    def __init__(
+        self,
+        state_path: str,
+        stop_path: str,
+        proc: subprocess.Popen,
+        target_host: str,
+        initial_target_addr: str,
+    ):
+        self._state_path = state_path
+        self._stop_path = stop_path
+        self._proc = proc
+        self._target_host = target_host
+        self._target_addr = initial_target_addr
+
+    @property
+    def target_addr(self) -> str:
+        try:
+            with open(self._state_path, encoding="utf-8") as f:
+                data = json.load(f)
+            ta = data.get("target_addr", "")
+            if ta:
+                self._target_addr = ta
+        except (OSError, json.JSONDecodeError):
+            pass
+        return self._target_addr
+
+    @property
+    def is_running(self) -> bool:
+        return self._proc.poll() is None
+
+    def resolve_target(self) -> bool:
+        return True
+
+    def start_trace(self) -> None:
+        pass
+
+    def stop_trace(self) -> None:
+        try:
+            with open(self._stop_path, "w", encoding="utf-8") as f:
+                f.write("1")
+        except OSError:
+            pass
+
+    def get_all_hops(self) -> list:
+        try:
+            with open(self._state_path, encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("hops", [])
+        except (OSError, json.JSONDecodeError):
+            return []
+
+
+def mtr_elevated_worker_main(argv: list[str]) -> int:
+    """
+    CLI: executable --mtr-elevated-worker <state_path> <stop_path> <host> <payload> <interval> <use_dns_0_or_1>
+    Runs MTREngine as root; writes hop snapshots to state_path until stop_path contains 1.
+    """
+    if len(argv) < 6:
+        print("mtr-elevated-worker: missing arguments", file=sys.stderr)
+        return 2
+    state_path = argv[0]
+    stop_path = argv[1]
+    host = argv[2]
+    try:
+        payload_size = int(argv[3])
+        interval = float(argv[4])
+    except ValueError:
+        return 2
+    use_dns = argv[5] == "1"
+    engine = MTREngine(host, payload_size=payload_size, interval=interval, use_dns=use_dns)
+    if not engine.resolve_target():
+        print(f"Failed to resolve {host}", file=sys.stderr)
+        return 1
+    engine.start_trace()
+    try:
+        while True:
+            try:
+                if os.path.isfile(stop_path):
+                    with open(stop_path, encoding="utf-8") as f:
+                        if f.read().strip() == "1":
+                            break
+            except OSError:
+                pass
+            hops = engine.get_all_hops()
+            snapshot = {
+                "hops": hops,
+                "target_addr": engine.target_addr,
+                "target_host": host,
+            }
+            tmp_path = state_path + ".tmp"
+            try:
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(snapshot, f)
+                os.replace(tmp_path, state_path)
+            except OSError:
+                pass
+            time.sleep(0.5)
+    finally:
+        engine.stop_trace()
+    return 0
 
 
 if __name__ == "__main__":

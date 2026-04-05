@@ -18,24 +18,45 @@ from PySide6.QtWidgets import (
 
 import os
 import sys
+import tempfile
+from pathlib import Path
 
-from core.mtr_engine import MTREngine, MAX_HOPS
+from core.mtr_engine import (
+    MAX_HOPS,
+    MTREngine,
+    DarwinElevatedMTRReader,
+    darwin_raw_icmp_available,
+    launch_darwin_elevated_mtr_subprocess,
+)
 
 
 class MTRWorker(QThread):
-    """Runs MTREngine.start_trace() off the UI thread."""
+    """Runs MTREngine.start_trace() off the UI thread (or waits on elevated subprocess)."""
     finished = Signal()
     error = Signal(str)
 
-    def __init__(self, engine: MTREngine):
+    def __init__(self, engine: MTREngine, elevated_proc=None):
         super().__init__()
         self._engine = engine
+        self._elevated_proc = elevated_proc
 
     def run(self):
         try:
-            self._engine.start_trace()
-            while self._engine.is_running:
-                self.msleep(500)
+            if self._elevated_proc is not None:
+                while self._elevated_proc.poll() is None:
+                    self.msleep(500)
+                rc = self._elevated_proc.returncode
+                err = ""
+                if self._elevated_proc.stderr:
+                    err = self._elevated_proc.stderr.read() or ""
+                if rc != 0:
+                    self.error.emit(
+                        err.strip() or "MTR helper exited unexpectedly (elevation cancelled or failed)."
+                    )
+            else:
+                self._engine.start_trace()
+                while self._engine.is_running:
+                    self.msleep(500)
         except Exception as e:
             self.error.emit(str(e))
         finally:
@@ -53,6 +74,8 @@ class MTRView(QWidget):
 
         self._engine = None
         self._worker = None
+        self._mtr_temp_paths: tuple[str, ...] | None = None
+        self._mtr_state_snapshot_path: str | None = None
         self._update_timer = QTimer()
         self._update_timer.setInterval(1000)
         self._update_timer.timeout.connect(self._update_table)
@@ -60,26 +83,26 @@ class MTRView(QWidget):
         self._setup_ui()
         self._apply_darwin_mtr_privilege_banner()
 
-    def _darwin_needs_admin_for_mtr(self) -> bool:
-        return sys.platform == "darwin" and os.geteuid() != 0
-
     def _set_mtr_start_idle_state(self) -> None:
-        """After a trace stops, only enable Start when raw ICMP is allowed (macOS = root)."""
-        if self._darwin_needs_admin_for_mtr():
-            self._start_btn.setText("Administrator access required")
-            self._start_btn.setEnabled(False)
-        else:
-            self._start_btn.setText("Start")
-            self._start_btn.setEnabled(True)
+        self._start_btn.setText("Start")
+        self._start_btn.setEnabled(True)
+
+    def _discard_prior_mtr_state_file(self) -> None:
+        p = self._mtr_state_snapshot_path
+        if not p:
+            return
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+        self._mtr_state_snapshot_path = None
 
     def _apply_darwin_mtr_privilege_banner(self) -> None:
-        if not self._darwin_needs_admin_for_mtr():
+        if sys.platform != "darwin" or darwin_raw_icmp_available():
             return
-        self._start_btn.setText("Administrator access required")
-        self._start_btn.setEnabled(False)
         self._status_label.setText(
-            "MTR requires administrator privileges. Please relaunch the app and enter your "
-            "password when prompted."
+            "When you start a trace, macOS may ask for your password so MTR can use raw ICMP "
+            "(only the MTR helper runs as administrator)."
         )
 
     def _setup_ui(self):
@@ -218,6 +241,72 @@ class MTRView(QWidget):
         """Set the target hostname. Called externally by other views/components."""
         self._host_input.setText(hostname)
 
+    def _start_trace_darwin_elevated(
+        self,
+        target: str,
+        payload_size: int,
+        interval: float,
+        use_dns: bool,
+        resolved_addr: str,
+    ) -> None:
+        fd, state_path = tempfile.mkstemp(prefix="ant_mtr_", suffix="_state.json")
+        os.close(fd)
+        fd, stop_path = tempfile.mkstemp(prefix="ant_mtr_", suffix="_stop.txt")
+        os.close(fd)
+        with open(stop_path, "w", encoding="utf-8") as f:
+            f.write("0")
+        self._mtr_state_snapshot_path = state_path
+        self._mtr_temp_paths = (stop_path, state_path + ".tmp")
+
+        if getattr(sys, "frozen", False):
+            worker_argv = [
+                sys.executable,
+                "--mtr-elevated-worker",
+                state_path,
+                stop_path,
+                target,
+                str(payload_size),
+                str(interval),
+                "1" if use_dns else "0",
+            ]
+        else:
+            main_py = Path(__file__).resolve().parent.parent / "main.py"
+            worker_argv = [
+                sys.executable,
+                str(main_py),
+                "--mtr-elevated-worker",
+                state_path,
+                stop_path,
+                target,
+                str(payload_size),
+                str(interval),
+                "1" if use_dns else "0",
+            ]
+
+        proc = launch_darwin_elevated_mtr_subprocess(worker_argv)
+        self._engine = DarwinElevatedMTRReader(
+            state_path, stop_path, proc, target, resolved_addr
+        )
+
+        self._status_label.setText(
+            f"Tracing {target} ({resolved_addr})… (enter your password if prompted)"
+        )
+        self._table.setRowCount(0)
+
+        self._start_btn.setEnabled(False)
+        self._stop_btn.setEnabled(True)
+        self._host_input.setEnabled(False)
+        self._size_input.setEnabled(False)
+        self._interval_input.setEnabled(False)
+        self._dns_checkbox.setEnabled(False)
+
+        self._worker = MTRWorker(self._engine, elevated_proc=proc)
+        self._worker.error.connect(self._on_trace_error)
+        self._worker.finished.connect(self._on_trace_finished)
+        self._worker.start()
+
+        self._update_timer.start()
+
     def _start_trace(self):
         if self._worker is not None and self._worker.isRunning():
             return
@@ -227,35 +316,36 @@ class MTRView(QWidget):
             self._status_label.setText("Please enter a hostname or IP address.")
             return
 
-        # Raw-socket privilege check: Windows uses ICMP.DLL; macOS/Linux need root for raw ICMP.
-        if self._darwin_needs_admin_for_mtr():
-            self._status_label.setText(
-                "MTR requires administrator privileges. Please relaunch the app and enter your "
-                "password when prompted."
-            )
-            return
-        if sys.platform != "win32" and os.geteuid() != 0:
-            self._status_label.setText("Error: Root privileges required for raw sockets.")
-            return
-
-        # Stop any running trace first
-        self._stop_trace()
-
         payload_size = self._size_input.value()
         interval = self._interval_input.value()
         use_dns = self._dns_checkbox.isChecked()
 
-        self._engine = MTREngine(
+        pre = MTREngine(
             target_host=target,
             payload_size=payload_size,
             interval=interval,
             use_dns=use_dns,
         )
-
-        if not self._engine.resolve_target():
+        if not pre.resolve_target():
             self._status_label.setText(f"Failed to resolve: {target}")
-            self._engine = None
             return
+
+        if sys.platform != "win32" and sys.platform != "darwin" and os.geteuid() != 0:
+            self._status_label.setText("Error: Root privileges required for raw sockets.")
+            return
+
+        self._discard_prior_mtr_state_file()
+
+        # Stop any running trace first
+        self._stop_trace()
+
+        if sys.platform == "darwin" and not darwin_raw_icmp_available():
+            self._start_trace_darwin_elevated(
+                target, payload_size, interval, use_dns, pre.target_addr
+            )
+            return
+
+        self._engine = pre
 
         self._status_label.setText(f"Tracing {target} ({self._engine.target_addr})...")
         self._table.setRowCount(0)
@@ -289,6 +379,13 @@ class MTRView(QWidget):
             self._worker.stop()
             self._worker.wait(7000)
             self._worker = None
+
+        for p in self._mtr_temp_paths or ():
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        self._mtr_temp_paths = None
 
         # Keep self._engine alive so Full Report can read hop data.
         # It will be replaced on the next Start click.
@@ -358,12 +455,16 @@ class MTRView(QWidget):
             self._size_input.setEnabled(True)
             self._interval_input.setEnabled(True)
             self._dns_checkbox.setEnabled(True)
-            if self._status_label.text().startswith("Tracing"):
+            status = self._status_label.text()
+            if status.startswith("Error:"):
+                return
+            if status.startswith("Tracing"):
                 self._status_label.setText("Trace complete.")
 
     def closeEvent(self, event):
         """Ensure trace is stopped when widget is closed or destroyed."""
         self._stop_trace()
+        self._discard_prior_mtr_state_file()
         super().closeEvent(event)
 
 
