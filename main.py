@@ -1,7 +1,6 @@
 import os
 import platform
 import shlex
-import subprocess
 import sys
 from pathlib import Path
 
@@ -14,22 +13,24 @@ from ui.launcher import LauncherWindow
 
 def _maybe_macos_relaunch_elevated() -> None:
     """
-    MTR uses raw ICMP sockets on macOS, which requires root. Prompt via osascript
-    and relaunch with administrator privileges; this process then exits.
+    MTR needs raw ICMP on macOS (root). Replace this process with osascript so the
+    non-root Python GUI cannot continue after the prompt; the elevated child is the app.
     """
     if platform.system() != "Darwin" or os.geteuid() == 0:
         return
+    # Frozen: real binary is argv[0] inside the .app (not always the same as sys.executable).
+    # Dev: run the same interpreter + script/args.
     if getattr(sys, "frozen", False):
-        cmd = shlex.join(sys.argv)
+        shell_cmd = shlex.join(sys.argv)
     else:
-        cmd = shlex.join([sys.executable, *sys.argv])
-    inner = cmd.replace("\\", "\\\\").replace('"', '\\"')
-    script = f'do shell script "{inner}" with administrator privileges'
+        shell_cmd = shlex.join([sys.executable, *sys.argv])
+    inner = shell_cmd.replace("\\", "\\\\").replace('"', '\\"')
+    applescript = f'do shell script "{inner}" with administrator privileges'
     try:
-        subprocess.run(["osascript", "-e", script])
-    except Exception:
-        pass
-    sys.exit()
+        os.execvp("osascript", ["osascript", "-e", applescript])
+    except OSError as e:
+        print(f"Failed to elevate: {e}", file=sys.stderr)
+        # Continue without elevation; MTR tab will explain and disable Start.
 
 
 def main() -> int:

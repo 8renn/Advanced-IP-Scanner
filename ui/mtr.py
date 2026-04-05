@@ -16,8 +16,8 @@ from PySide6.QtWidgets import (
     QSizePolicy,
 )
 
+import os
 import sys
-import ctypes
 
 from core.mtr_engine import MTREngine, MAX_HOPS
 
@@ -58,6 +58,29 @@ class MTRView(QWidget):
         self._update_timer.timeout.connect(self._update_table)
 
         self._setup_ui()
+        self._apply_darwin_mtr_privilege_banner()
+
+    def _darwin_needs_admin_for_mtr(self) -> bool:
+        return sys.platform == "darwin" and os.geteuid() != 0
+
+    def _set_mtr_start_idle_state(self) -> None:
+        """After a trace stops, only enable Start when raw ICMP is allowed (macOS = root)."""
+        if self._darwin_needs_admin_for_mtr():
+            self._start_btn.setText("Administrator access required")
+            self._start_btn.setEnabled(False)
+        else:
+            self._start_btn.setText("Start")
+            self._start_btn.setEnabled(True)
+
+    def _apply_darwin_mtr_privilege_banner(self) -> None:
+        if not self._darwin_needs_admin_for_mtr():
+            return
+        self._start_btn.setText("Administrator access required")
+        self._start_btn.setEnabled(False)
+        self._status_label.setText(
+            "MTR requires administrator privileges. Please relaunch the app and enter your "
+            "password when prompted."
+        )
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -204,13 +227,16 @@ class MTRView(QWidget):
             self._status_label.setText("Please enter a hostname or IP address.")
             return
 
-        # Raw-socket privilege check is only needed on non-Windows paths.
-        # Windows uses ICMP.DLL API and does not require admin elevation.
-        if sys.platform != "win32":
-            import os
-            if os.geteuid() != 0:
-                self._status_label.setText("Error: Root privileges required for raw sockets.")
-                return
+        # Raw-socket privilege check: Windows uses ICMP.DLL; macOS/Linux need root for raw ICMP.
+        if self._darwin_needs_admin_for_mtr():
+            self._status_label.setText(
+                "MTR requires administrator privileges. Please relaunch the app and enter your "
+                "password when prompted."
+            )
+            return
+        if sys.platform != "win32" and os.geteuid() != 0:
+            self._status_label.setText("Error: Root privileges required for raw sockets.")
+            return
 
         # Stop any running trace first
         self._stop_trace()
@@ -268,7 +294,7 @@ class MTRView(QWidget):
         # It will be replaced on the next Start click.
 
         # Restore UI state
-        self._start_btn.setEnabled(True)
+        self._set_mtr_start_idle_state()
         self._stop_btn.setEnabled(False)
         self._host_input.setEnabled(True)
         self._size_input.setEnabled(True)
@@ -326,7 +352,7 @@ class MTRView(QWidget):
         # Only reset UI if trace was intentionally stopped
         if not self._engine or not self._engine.is_running:
             self._update_timer.stop()
-            self._start_btn.setEnabled(True)
+            self._set_mtr_start_idle_state()
             self._stop_btn.setEnabled(False)
             self._host_input.setEnabled(True)
             self._size_input.setEnabled(True)
