@@ -16,7 +16,7 @@ APP_NAME = "AdvancedNetworkTool"
 BUNDLE_ID = "com.advancednetworktool.app"
 
 # Project root = directory containing this spec (repository root when run from CI)
-project_dir = Path(SPECPATH).resolve().parent
+project_dir = Path(SPECPATH).resolve()
 
 _app_icns = project_dir / "assets" / "app.icns"
 icon_path = str(_app_icns) if _app_icns.is_file() else None
