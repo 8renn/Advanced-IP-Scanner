@@ -99,7 +99,6 @@ def fetch_latest_release(repo: str = GITHUB_REPO) -> ReleaseInfo | None:
 
 def pick_update_asset(release: ReleaseInfo) -> AssetInfo | None:
     if sys.platform == "darwin":
-        # macOS: no auto-update; user installs from GitHub releases
         logger.info(
             "Updater: Auto-update is not available on macOS. "
             "Please download the latest version from GitHub."
@@ -108,14 +107,26 @@ def pick_update_asset(release: ReleaseInfo) -> AssetInfo | None:
     if sys.platform != "win32":
         return None
 
+    # Prefer standalone .exe assets
     exe_assets = [a for a in release.assets if a.name.lower().endswith(".exe")]
-    if not exe_assets:
-        return None
+    if exe_assets:
+        preferred = [
+            a for a in exe_assets if ("setup" in a.name.lower() or "install" in a.name.lower())
+        ]
+        return preferred[0] if preferred else exe_assets[0]
 
-    preferred = [
-        a for a in exe_assets if ("setup" in a.name.lower() or "install" in a.name.lower())
+    # Fall back to .zip assets (exclude macOS zips)
+    zip_assets = [
+        a
+        for a in release.assets
+        if a.name.lower().endswith(".zip")
+        and "macos" not in a.name.lower()
+        and "darwin" not in a.name.lower()
     ]
-    return preferred[0] if preferred else exe_assets[0]
+    if zip_assets:
+        return zip_assets[0]
+
+    return None
 
 
 def download_asset(asset: AssetInfo, dest_dir=None, progress_cb=None) -> Path:
@@ -218,11 +229,53 @@ def apply_installer_update(installer_path: Path) -> bool:
     return True
 
 
+def _apply_zip_update(zip_path: Path) -> bool:
+    """Extract a zip update and apply the portable .exe from inside it."""
+    if sys.platform != "win32":
+        return False
+
+    import zipfile
+
+    extract_dir = zip_path.parent / "ant_update_extracted"
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(extract_dir)
+    except (zipfile.BadZipFile, OSError) as e:
+        logger.warning("Updater: failed to extract zip: %s", e)
+        return False
+
+    # Find the .exe inside the extracted contents
+    exe_files = list(extract_dir.rglob("*.exe"))
+    if not exe_files:
+        logger.warning("Updater: no .exe found inside zip")
+        return False
+
+    # Prefer the main app exe (not helper exes in _internal)
+    main_exe = None
+    for ef in exe_files:
+        # Skip anything inside _internal folder
+        if "_internal" in ef.parts:
+            continue
+        main_exe = ef
+        break
+
+    if main_exe is None:
+        # Fall back to first exe found
+        main_exe = exe_files[0]
+
+    logger.info("Updater: found exe in zip: %s", main_exe)
+    return apply_portable_update(main_exe)
+
+
 def apply_update(downloaded_path: Path, asset: AssetInfo) -> bool:
     if sys.platform != "win32":
         return False
 
     name = asset.name.lower()
+
+    if name.endswith(".zip"):
+        return _apply_zip_update(downloaded_path)
+
     if "setup" in name or "install" in name:
         return apply_installer_update(downloaded_path)
     return apply_portable_update(downloaded_path)
