@@ -33,6 +33,39 @@ jobs:
           cp speedtest assets/speedtest
           chmod +x assets/speedtest
 
+      - name: Create macOS icon
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          SRC=""
+          if [ -f assets/new_icon.png ]; then
+            SRC="assets/new_icon.png"
+          else
+            SRC=$(find assets -maxdepth 1 -name '*.png' -type f 2>/dev/null | sort | head -n 1 || true)
+          fi
+          if [ -z "$SRC" ] && [ -f assets/app.ico ]; then
+            sips -s format png assets/app.ico --out /tmp/macos_icon_src.png
+            SRC="/tmp/macos_icon_src.png"
+          fi
+          if [ -z "$SRC" ]; then
+            echo "No icon source found: add assets/new_icon.png, a PNG under assets/, or assets/app.ico" >&2
+            exit 1
+          fi
+          echo "Icon source: $SRC"
+          rm -rf icon.iconset
+          mkdir -p icon.iconset
+          sips -z 16 16     "$SRC" --out icon.iconset/icon_16x16.png
+          sips -z 32 32     "$SRC" --out icon.iconset/icon_16x16@2x.png
+          sips -z 32 32     "$SRC" --out icon.iconset/icon_32x32.png
+          sips -z 64 64     "$SRC" --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128   "$SRC" --out icon.iconset/icon_128x128.png
+          sips -z 256 256   "$SRC" --out icon.iconset/icon_128x128@2x.png
+          sips -z 256 256   "$SRC" --out icon.iconset/icon_256x256.png
+          sips -z 512 512   "$SRC" --out icon.iconset/icon_256x256@2x.png
+          sips -z 512 512   "$SRC" --out icon.iconset/icon_512x512.png
+          sips -z 1024 1024 "$SRC" --out icon.iconset/icon_512x512@2x.png
+          iconutil -c icns icon.iconset -o assets/app.icns
+
       - name: Build with PyInstaller
         run: |
           python -m PyInstaller ANT-mac.spec

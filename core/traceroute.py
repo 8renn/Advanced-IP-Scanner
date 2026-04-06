@@ -278,6 +278,8 @@ class TracerouteWorker(QThread):
                 self.finished_signal.emit(msg)
 
     def _run_traceroute_darwin(self, target: str) -> None:
+        import socket
+
         # macOS: numeric traceroute, same hop_signal / finished_signal contract as Windows.
         popen_kwargs: dict = {
             "args": ["traceroute", "-n", "-m", "30", target],
@@ -328,6 +330,20 @@ class TracerouteWorker(QThread):
 
                     parsed = _parse_darwin_hop_line(line)
                     if parsed is not None:
+                        ip_val = (parsed.get("ip") or "").strip()
+                        if ip_val and ip_val != "-" and not parsed.get("hostname"):
+                            try:
+                                old_timeout = socket.getdefaulttimeout()
+                                socket.setdefaulttimeout(2.0)
+                                try:
+                                    hostinfo = socket.gethostbyaddr(ip_val)
+                                    parsed["hostname"] = hostinfo[0]
+                                except (socket.herror, socket.gaierror, socket.timeout, OSError):
+                                    parsed["hostname"] = ""
+                                finally:
+                                    socket.setdefaulttimeout(old_timeout)
+                            except Exception:
+                                pass
                         self.hop_signal.emit(parsed)
                         if (
                             parsed["latency_1"] == "*"

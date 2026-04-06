@@ -6,7 +6,7 @@
 #
 # Notes:
 # - Does not bundle Windows-only binaries (e.g. assets/speedtest.exe).
-# - Icon: set _MAC_ICONS below if you add assets/App.icns (or similar).
+# - Icon: CI builds assets/app.icns before PyInstaller; EXE/BUNDLE use that path when present.
 
 from pathlib import Path
 
@@ -18,9 +18,8 @@ BUNDLE_ID = "com.advancednetworktool.app"
 # Project root = directory containing this spec (repository root when run from CI)
 project_dir = Path(SPECPATH).resolve().parent
 
-# Prefer a single .icns under assets/; otherwise BUNDLE gets no custom icon.
-_MAC_ICONS = sorted((project_dir / "assets").glob("*.icns")) if (project_dir / "assets").is_dir() else []
-icon_path = str(_MAC_ICONS[0]) if _MAC_ICONS else None
+_app_icns = project_dir / "assets" / "app.icns"
+icon_path = str(_app_icns) if _app_icns.is_file() else None
 
 datas = []
 
