@@ -43,7 +43,7 @@ class LauncherWindow(QWidget):
 
         self.setWindowTitle(APP_NAME)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setFixedSize(520, 420)
+        self.setFixedSize(500, 500)
         self._build_ui()
         self._center_on_screen()
         QTimer.singleShot(600, self._start_init)
@@ -58,6 +58,20 @@ class LauncherWindow(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(26, 24, 26, 18)
         card_layout.setSpacing(14)
+
+        close_bar = QHBoxLayout()
+        close_bar.setContentsMargins(0, 0, 0, 0)
+        close_bar.addStretch(1)
+
+        self._close_btn = QPushButton("✕", card)
+        self._close_btn.setObjectName("launcherCloseBtn")
+        self._close_btn.setFixedWidth(28)
+        self._close_btn.setFixedHeight(28)
+        self._close_btn.setCursor(Qt.PointingHandCursor)
+        self._close_btn.clicked.connect(self._on_close_clicked)
+        close_bar.addWidget(self._close_btn)
+
+        card_layout.addLayout(close_bar)
 
         logo = QLabel(card)
         logo.setAlignment(Qt.AlignCenter)
@@ -93,6 +107,47 @@ class LauncherWindow(QWidget):
         self.progress.setRange(0, 0)
         self.progress.setVisible(True)
         card_layout.addWidget(self.progress)
+
+        self.install_run_frame = QFrame(card)
+        self.install_run_frame.setObjectName("installRunFrame")
+        self.install_run_frame.setVisible(False)
+        install_layout = QVBoxLayout(self.install_run_frame)
+        install_layout.setContentsMargins(14, 12, 14, 12)
+        install_layout.setSpacing(10)
+
+        install_title = QLabel("Welcome to Advanced Network Tool", self.install_run_frame)
+        install_title.setObjectName("installRunTitle")
+        install_title.setWordWrap(True)
+        install_layout.addWidget(install_title)
+
+        install_desc = QLabel("Choose how you'd like to use this application:", self.install_run_frame)
+        install_desc.setObjectName("installRunDesc")
+        install_desc.setWordWrap(True)
+        install_layout.addWidget(install_desc)
+
+        btn_row_widget = QWidget(self.install_run_frame)
+        install_btn_row = QHBoxLayout(btn_row_widget)
+        install_btn_row.setContentsMargins(0, 0, 0, 0)
+        install_btn_row.setSpacing(10)
+        install_btn = QPushButton("Install", btn_row_widget)
+        install_btn.setObjectName("btnPrimary")
+        install_btn.setMinimumHeight(42)
+        run_portable_btn = QPushButton("Run Portable", btn_row_widget)
+        run_portable_btn.setObjectName("btnSecondary")
+        run_portable_btn.setMinimumHeight(42)
+        install_btn_row.addWidget(install_btn)
+        install_btn_row.addWidget(run_portable_btn)
+        install_layout.addWidget(btn_row_widget)
+
+        install_hint = QLabel(
+            "Install sets up for regular use. Portable runs without installing.",
+            self.install_run_frame,
+        )
+        install_hint.setObjectName("installRunHint")
+        install_hint.setWordWrap(True)
+        install_layout.addWidget(install_hint)
+
+        card_layout.addWidget(self.install_run_frame)
 
         self.update_frame = QFrame(card)
         self.update_frame.setObjectName("updateFrame")
@@ -133,6 +188,8 @@ class LauncherWindow(QWidget):
 
         self.download_btn.clicked.connect(self._on_download_clicked)
         self.skip_btn.clicked.connect(self._show_choose_phase)
+        install_btn.clicked.connect(self._on_install_clicked)
+        run_portable_btn.clicked.connect(self._on_run_portable_clicked)
 
         self.setStyleSheet(
             """
@@ -178,7 +235,17 @@ class LauncherWindow(QWidget):
                 border: 1px solid #2e3768;
                 border-radius: 10px;
             }
+            #installRunFrame {
+                background: #1c2346;
+                border: 1px solid #2e3768;
+                border-radius: 10px;
+            }
             #updateTitle {
+                color: #7ecbff;
+                font-size: 15px;
+                font-weight: 700;
+            }
+            #installRunTitle {
                 color: #7ecbff;
                 font-size: 15px;
                 font-weight: 700;
@@ -186,6 +253,15 @@ class LauncherWindow(QWidget):
             #updateNotes {
                 color: #9aa7d4;
                 font-size: 12px;
+            }
+            #installRunDesc {
+                color: #9aa7d4;
+                font-size: 12px;
+            }
+            #installRunHint {
+                color: #4e5a8a;
+                font-size: 10px;
+                font-style: italic;
             }
             #btnPrimary {
                 background: qlineargradient(
@@ -227,6 +303,16 @@ class LauncherWindow(QWidget):
                 color: #3e4870;
                 font-size: 10px;
             }
+            #launcherCloseBtn {
+                background: transparent;
+                color: #4e5a8a;
+                border: none;
+                font-size: 16px;
+                font-weight: 700;
+            }
+            #launcherCloseBtn:hover {
+                color: #e74c3c;
+            }
             """
         )
 
@@ -250,6 +336,11 @@ class LauncherWindow(QWidget):
             self.move(event.globalPosition().toPoint() - self._drag_offset)
         super().mouseMoveEvent(event)
 
+    def _on_close_clicked(self) -> None:
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+
     def _start_init(self) -> None:
         if DIST_CHANNEL == "msstore":
             # Microsoft Store handles updates — skip GitHub check, just launch
@@ -259,7 +350,18 @@ class LauncherWindow(QWidget):
             QTimer.singleShot(1500, self._auto_launch)
             return
 
+        if self._is_installed():
+            self._proceed_after_install_choice()
+            return
+
+        self.update_frame.setVisible(False)
+        self.progress.setVisible(False)
+        self.install_run_frame.setVisible(True)
+        self.status_lbl.setText("Choose how you'd like to continue.")
+
+    def _proceed_after_install_choice(self) -> None:
         # GitHub channel — check for updates
+        self.install_run_frame.setVisible(False)
         self.status_lbl.setText("Checking for updates…")
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
@@ -274,6 +376,41 @@ class LauncherWindow(QWidget):
         self._check_worker.error.connect(self._check_thread.quit)
         self._check_thread.finished.connect(self._cleanup_check_thread)
         self._check_thread.start()
+
+    def _get_install_marker_path(self) -> Path:
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).parent / ".installed"
+        return Path(__file__).resolve().parents[1] / ".installed"
+
+    def _is_installed(self) -> bool:
+        return self._get_install_marker_path().exists()
+
+    def _write_install_marker(self) -> bool:
+        try:
+            self._get_install_marker_path().write_text("installed", encoding="utf-8")
+            return True
+        except Exception as e:
+            logger.warning("Could not write install marker: %s", e)
+            return False
+
+    def _on_install_clicked(self) -> None:
+        self.install_run_frame.setVisible(False)
+        self.update_frame.setVisible(False)
+        self.progress.setVisible(True)
+        self.progress.setRange(0, 0)
+        self.status_lbl.setText("Installing…")
+
+        ok = self._write_install_marker()
+        if ok:
+            self.status_lbl.setText("Installed successfully")
+        else:
+            self.status_lbl.setText("Could not create install marker — running in portable mode")
+
+        QTimer.singleShot(800, self._proceed_after_install_choice)
+
+    def _on_run_portable_clicked(self) -> None:
+        self.install_run_frame.setVisible(False)
+        self._proceed_after_install_choice()
 
     def _cleanup_check_thread(self) -> None:
         if self._check_worker is not None:
@@ -296,6 +433,7 @@ class LauncherWindow(QWidget):
         self._show_choose_phase()
 
     def _show_update_phase(self, release: ReleaseInfo) -> None:
+        self.install_run_frame.setVisible(False)
         self.progress.setVisible(False)
         self.update_frame.setVisible(True)
         self.status_lbl.setText("Update available.")
@@ -306,6 +444,7 @@ class LauncherWindow(QWidget):
         self.update_notes.setText(notes or "Release notes unavailable.")
 
     def _show_choose_phase(self) -> None:
+        self.install_run_frame.setVisible(False)
         self.update_frame.setVisible(False)
         self.progress.setVisible(False)
         self.status_lbl.setText("Launching…")

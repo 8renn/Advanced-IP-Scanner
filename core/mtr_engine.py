@@ -9,7 +9,8 @@ import shlex
 import subprocess
 import sys
 import ctypes
-import ctypes.wintypes
+if sys.platform == "win32":
+    import ctypes.wintypes
 
 MAX_HOPS = 30
 ECHO_REPLY_TIMEOUT = 5.0        # seconds (float, used with select)
@@ -120,123 +121,122 @@ def _parse_icmp_response(data: bytes, expected_id: int, expected_seq: int) -> di
         return None
 
 
-class _IP_OPTION_INFORMATION(ctypes.Structure):
-    """Windows IP_OPTION_INFORMATION structure (used by ICMP API)."""
-    _fields_ = [
-        ("Ttl", ctypes.c_ubyte),
-        ("Tos", ctypes.c_ubyte),
-        ("Flags", ctypes.c_ubyte),
-        ("OptionsSize", ctypes.c_ubyte),
-        ("OptionsData", ctypes.POINTER(ctypes.c_ubyte)),
-    ]
-
-
-class _ICMP_ECHO_REPLY(ctypes.Structure):
-    """Windows ICMP_ECHO_REPLY structure."""
-    _fields_ = [
-        ("Address", ctypes.c_ulong),
-        ("Status", ctypes.c_ulong),
-        ("RoundTripTime", ctypes.c_ulong),
-        ("DataSize", ctypes.c_ushort),
-        ("Reserved", ctypes.c_ushort),
-        ("Data", ctypes.c_void_p),
-        ("Options", _IP_OPTION_INFORMATION),
-    ]
-
-
-class _WinICMPAPI:
-    """Wrapper around Windows ICMP.DLL for sending echo requests with TTL control."""
-
-    def __init__(self):
-        self._icmp_dll = ctypes.windll.LoadLibrary("ICMP.DLL")
-        # Define function signature for IcmpSendEcho (CRITICAL)
-        self._icmp_dll.IcmpSendEcho.argtypes = [
-            ctypes.wintypes.HANDLE,      # IcmpHandle
-            ctypes.wintypes.DWORD,       # DestinationAddress
-            ctypes.c_void_p,             # RequestData
-            ctypes.wintypes.WORD,        # RequestSize
-            ctypes.c_void_p,             # RequestOptions
-            ctypes.c_void_p,             # ReplyBuffer
-            ctypes.wintypes.DWORD,       # ReplySize
-            ctypes.wintypes.DWORD        # Timeout
+if sys.platform == "win32":
+    class _IP_OPTION_INFORMATION(ctypes.Structure):
+        """Windows IP_OPTION_INFORMATION structure (used by ICMP API)."""
+        _fields_ = [
+            ("Ttl", ctypes.c_ubyte),
+            ("Tos", ctypes.c_ubyte),
+            ("Flags", ctypes.c_ubyte),
+            ("OptionsSize", ctypes.c_ubyte),
+            ("OptionsData", ctypes.POINTER(ctypes.c_ubyte)),
         ]
-        self._icmp_dll.IcmpSendEcho.restype = ctypes.wintypes.DWORD
-        self._icmp_dll.IcmpCreateFile.restype = ctypes.wintypes.HANDLE
-        self._icmp_dll.IcmpCloseHandle.argtypes = [ctypes.wintypes.HANDLE]
-        self._icmp_dll.IcmpCloseHandle.restype = ctypes.wintypes.BOOL
-        self._handle = self._icmp_dll.IcmpCreateFile()
-        if not self._handle:
-            raise OSError("Failed to create ICMP handle")
 
-    def send_echo(self, dest_addr_str: str, ttl: int, payload_size: int, timeout_ms: int) -> dict | None:
-        """Send an ICMP echo request with specified TTL. Returns dict with addr/rtt or None on timeout."""
-        # IcmpSendEcho expects DestinationAddress as a ULONG containing the
-        # IPv4 address in network byte order.  inet_aton() already gives us
-        # 4 bytes in network order; we just need to load them into a c_ulong
-        # WITHOUT swapping, so use LITTLE-ENDIAN unpack ("<I") because
-        # c_ulong stores its value in native (little-endian on x86) format
-        # and IcmpSendEcho will reinterpret those same bytes as network order.
-        dest_addr = struct.unpack("<I", socket.inet_aton(dest_addr_str))[0]
+    class _ICMP_ECHO_REPLY(ctypes.Structure):
+        """Windows ICMP_ECHO_REPLY structure."""
+        _fields_ = [
+            ("Address", ctypes.c_ulong),
+            ("Status", ctypes.c_ulong),
+            ("RoundTripTime", ctypes.c_ulong),
+            ("DataSize", ctypes.c_ushort),
+            ("Reserved", ctypes.c_ushort),
+            ("Data", ctypes.c_void_p),
+            ("Options", _IP_OPTION_INFORMATION),
+        ]
 
-        # Set up IP options with TTL
-        ip_options = _IP_OPTION_INFORMATION()
-        ip_options.Ttl = ttl
-        ip_options.Tos = 0
-        ip_options.Flags = IPFLAG_DONT_FRAGMENT
-        ip_options.OptionsSize = 0
-        ip_options.OptionsData = None
+    class _WinICMPAPI:
+        """Wrapper around Windows ICMP.DLL for sending echo requests with TTL control."""
 
-        # Create send buffer (filled with spaces like WinMTR)
-        send_size = max(0, payload_size - 8)
-        send_buf = ctypes.create_string_buffer(b' ' * send_size, send_size) if send_size > 0 else ctypes.create_string_buffer(0)
+        def __init__(self):
+            self._icmp_dll = ctypes.windll.LoadLibrary("ICMP.DLL")
+            # Define function signature for IcmpSendEcho (CRITICAL)
+            self._icmp_dll.IcmpSendEcho.argtypes = [
+                ctypes.wintypes.HANDLE,      # IcmpHandle
+                ctypes.wintypes.DWORD,       # DestinationAddress
+                ctypes.c_void_p,             # RequestData
+                ctypes.wintypes.WORD,        # RequestSize
+                ctypes.c_void_p,             # RequestOptions
+                ctypes.c_void_p,             # ReplyBuffer
+                ctypes.wintypes.DWORD,       # ReplySize
+                ctypes.wintypes.DWORD        # Timeout
+            ]
+            self._icmp_dll.IcmpSendEcho.restype = ctypes.wintypes.DWORD
+            self._icmp_dll.IcmpCreateFile.restype = ctypes.wintypes.HANDLE
+            self._icmp_dll.IcmpCloseHandle.argtypes = [ctypes.wintypes.HANDLE]
+            self._icmp_dll.IcmpCloseHandle.restype = ctypes.wintypes.BOOL
+            self._handle = self._icmp_dll.IcmpCreateFile()
+            if not self._handle:
+                raise OSError("Failed to create ICMP handle")
 
-        # Create reply buffer — must be at least sizeof(ICMP_ECHO_REPLY) + 8
-        reply_size = ctypes.sizeof(_ICMP_ECHO_REPLY) + payload_size + 8
-        reply_buf = ctypes.create_string_buffer(reply_size)
+        def send_echo(self, dest_addr_str: str, ttl: int, payload_size: int, timeout_ms: int) -> dict | None:
+            """Send an ICMP echo request with specified TTL. Returns dict with addr/rtt or None on timeout."""
+            # IcmpSendEcho expects DestinationAddress as a ULONG containing the
+            # IPv4 address in network byte order.  inet_aton() already gives us
+            # 4 bytes in network order; we just need to load them into a c_ulong
+            # WITHOUT swapping, so use LITTLE-ENDIAN unpack ("<I") because
+            # c_ulong stores its value in native (little-endian on x86) format
+            # and IcmpSendEcho will reinterpret those same bytes as network order.
+            dest_addr = struct.unpack("<I", socket.inet_aton(dest_addr_str))[0]
 
-        # Call IcmpSendEcho
-        ret = self._icmp_dll.IcmpSendEcho(
-            self._handle,
-            dest_addr,
-            send_buf,
-            send_size,
-            ctypes.byref(ip_options),
-            reply_buf,
-            reply_size,
-            timeout_ms,
-        )
+            # Set up IP options with TTL
+            ip_options = _IP_OPTION_INFORMATION()
+            ip_options.Ttl = ttl
+            ip_options.Tos = 0
+            ip_options.Flags = IPFLAG_DONT_FRAGMENT
+            ip_options.OptionsSize = 0
+            ip_options.OptionsData = None
 
-        if ret == 0:
-            return None
+            # Create send buffer (filled with spaces like WinMTR)
+            send_size = max(0, payload_size - 8)
+            send_buf = ctypes.create_string_buffer(b' ' * send_size, send_size) if send_size > 0 else ctypes.create_string_buffer(0)
 
-        # Parse the reply
-        reply = ctypes.cast(reply_buf, ctypes.POINTER(_ICMP_ECHO_REPLY)).contents
+            # Create reply buffer — must be at least sizeof(ICMP_ECHO_REPLY) + 8
+            reply_size = ctypes.sizeof(_ICMP_ECHO_REPLY) + payload_size + 8
+            reply_buf = ctypes.create_string_buffer(reply_size)
 
-        status = reply.Status
-        rtt = reply.RoundTripTime
+            # Call IcmpSendEcho
+            ret = self._icmp_dll.IcmpSendEcho(
+                self._handle,
+                dest_addr,
+                send_buf,
+                send_size,
+                ctypes.byref(ip_options),
+                reply_buf,
+                reply_size,
+                timeout_ms,
+            )
 
-        # Address field is in network byte order stored in a ULONG —
-        # pack as little-endian to get the original network-order bytes,
-        # then inet_ntoa converts them to dotted-quad string.
-        addr_bytes = struct.pack("<I", reply.Address)
-        addr_str = socket.inet_ntoa(addr_bytes)
+            if ret == 0:
+                return None
 
-        if status == IP_SUCCESS or status == IP_TTL_EXPIRED_TRANSIT:
-            return {
-                "addr": addr_str,
-                "rtt_ms": rtt,
-                "status": status,
-                "type": "reply" if status == IP_SUCCESS else "ttl_exceeded",
-            }
-        else:
-            return None
+            # Parse the reply
+            reply = ctypes.cast(reply_buf, ctypes.POINTER(_ICMP_ECHO_REPLY)).contents
 
-    def close(self):
-        """Close the ICMP handle."""
-        try:
-            self._icmp_dll.IcmpCloseHandle(self._handle)
-        except Exception:
-            pass
+            status = reply.Status
+            rtt = reply.RoundTripTime
+
+            # Address field is in network byte order stored in a ULONG —
+            # pack as little-endian to get the original network-order bytes,
+            # then inet_ntoa converts them to dotted-quad string.
+            addr_bytes = struct.pack("<I", reply.Address)
+            addr_str = socket.inet_ntoa(addr_bytes)
+
+            if status == IP_SUCCESS or status == IP_TTL_EXPIRED_TRANSIT:
+                return {
+                    "addr": addr_str,
+                    "rtt_ms": rtt,
+                    "status": status,
+                    "type": "reply" if status == IP_SUCCESS else "ttl_exceeded",
+                }
+            else:
+                return None
+
+        def close(self):
+            """Close the ICMP handle."""
+            try:
+                self._icmp_dll.IcmpCloseHandle(self._handle)
+            except Exception:
+                pass
 
 
 class HopData:

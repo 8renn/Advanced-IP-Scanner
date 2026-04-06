@@ -4,7 +4,7 @@ Bump __version__ before every release.
 Set DIST_CHANNEL to "github" for portable builds or "msstore" for Microsoft Store.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 APP_NAME = "Advanced Network Tool"
 GITHUB_REPO = "8renn/Advanced-IP-Scanner"
 
