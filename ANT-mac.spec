@@ -34,7 +34,7 @@ if assets_dir.is_dir():
             continue
         if child.suffix.lower() == ".exe":
             continue
-        datas.append((str(child), f"assets/{child.name}"))
+        datas.append((str(child), "assets"))
 
 db_dir = project_dir / "db"
 if db_dir.is_dir():
