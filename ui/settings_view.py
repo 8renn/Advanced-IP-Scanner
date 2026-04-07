@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.settings_manager import DEFAULT_SETTINGS, SettingsManager
+from core.version import __version__
 
 
 class SettingsView(QWidget):
@@ -84,6 +85,8 @@ class SettingsView(QWidget):
         inner_layout.addWidget(self._build_behavior_card())
         inner_layout.addWidget(self._build_dashboard_card())
         inner_layout.addStretch(1)
+        inner_layout.addSpacing(16)
+        inner_layout.addWidget(self._build_about_card())
 
         root.addWidget(top_bar)
         root.addWidget(scroll, 1)
@@ -183,6 +186,30 @@ class SettingsView(QWidget):
             }
             QPushButton[variant="secondary"]:hover {
                 background-color: #384381;
+            }
+            QLabel#settingsAboutAppName {
+                color: #dbe5ff;
+                font-size: 16px;
+                font-weight: 700;
+            }
+            QLabel#settingsAboutVersion {
+                color: #5b8ad5;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QLabel#settingsAboutMetaLabel {
+                color: #8b97c9;
+                font-size: 13px;
+                font-weight: 600;
+            }
+            QLabel#settingsAboutMetaValue {
+                color: #e8eeff;
+                font-size: 13px;
+            }
+            QLabel#settingsAboutDesc {
+                color: #6b7aaa;
+                font-size: 12px;
+                font-style: italic;
             }
             """
         )
@@ -330,6 +357,80 @@ class SettingsView(QWidget):
         reset_order_btn.setProperty("variant", "secondary")
         reset_order_btn.clicked.connect(self._reset_dashboard_order)
         grid.addWidget(reset_order_btn, 1, 0, 1, 2)
+
+        return card
+
+    def _build_about_card(self) -> QFrame:
+        card = QFrame(self)
+        card.setObjectName("settingsCard")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(18, 16, 18, 16)
+        outer.setSpacing(10)
+
+        title_lbl = QLabel("About", card)
+        title_lbl.setObjectName("settingsCardTitle")
+        outer.addWidget(title_lbl)
+
+        app_name = QLabel("Advanced Network Tool (A.N.T.)", card)
+        app_name.setObjectName("settingsAboutAppName")
+        app_name.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        outer.addWidget(app_name)
+
+        ver_lbl = QLabel(f"Version {__version__}", card)
+        ver_lbl.setObjectName("settingsAboutVersion")
+        ver_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        outer.addWidget(ver_lbl)
+
+        meta = QGridLayout()
+        meta.setHorizontalSpacing(16)
+        meta.setVerticalSpacing(10)
+        meta.setColumnStretch(1, 1)
+
+        dev_l = QLabel("Developer:", card)
+        dev_l.setObjectName("settingsAboutMetaLabel")
+        dev_l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        dev_v = QLabel("8renn", card)
+        dev_v.setObjectName("settingsAboutMetaValue")
+        dev_v.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        meta.addWidget(dev_l, 0, 0)
+        meta.addWidget(dev_v, 0, 1)
+
+        lic_l = QLabel("License:", card)
+        lic_l.setObjectName("settingsAboutMetaLabel")
+        lic_l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lic_v = QLabel("MIT", card)
+        lic_v.setObjectName("settingsAboutMetaValue")
+        lic_v.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        meta.addWidget(lic_l, 1, 0)
+        meta.addWidget(lic_v, 1, 1)
+
+        gh_l = QLabel("GitHub:", card)
+        gh_l.setObjectName("settingsAboutMetaLabel")
+        gh_l.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        gh_l.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        gh_link = QLabel(card)
+        gh_link.setObjectName("settingsAboutMetaValue")
+        gh_link.setTextFormat(Qt.RichText)
+        gh_link.setOpenExternalLinks(True)
+        gh_link.setText(
+            '<a href="https://github.com/8renn/Advanced-Network-Tool" '
+            'style="color: #5b8ad5;">github.com/8renn/Advanced-Network-Tool</a>'
+        )
+        gh_link.setWordWrap(True)
+        meta.addWidget(gh_l, 2, 0, Qt.AlignRight | Qt.AlignTop)
+        meta.addWidget(gh_link, 2, 1)
+
+        outer.addLayout(meta)
+
+        desc = QLabel(
+            "A comprehensive network diagnostics suite for IT professionals.",
+            card,
+        )
+        desc.setObjectName("settingsAboutDesc")
+        desc.setWordWrap(True)
+        desc.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        outer.addWidget(desc)
 
         return card
 

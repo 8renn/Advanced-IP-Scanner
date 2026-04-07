@@ -179,7 +179,7 @@ class LauncherWindow(QWidget):
         card_layout.addWidget(self.update_frame)
 
         card_layout.addStretch(1)
-        footer = QLabel("© 2025 Advanced Network Tool", card)
+        footer = QLabel("© 2026 8renn", card)
         footer.setObjectName("launcherFooter")
         footer.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(footer)
